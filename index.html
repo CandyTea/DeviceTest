@@ -195,6 +195,50 @@
     border-radius: 2px 2px 0 0;
     transition: height 0.1s;
   }
+
+  .name-input {
+    background: #1a1d27;
+    border: 1px solid #3a3f58;
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: #e1e4e8;
+    font-size: 0.9rem;
+    text-align: center;
+    width: 160px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .name-input:focus { border-color: #5a6088; }
+  .name-input::placeholder { color: #4a4f66; }
+
+  .lb-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+    font-size: 0.85rem;
+  }
+  .lb-table th {
+    color: #6b7084;
+    font-weight: 500;
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid #232839;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+  }
+  .lb-table td {
+    padding: 6px 10px;
+    border-bottom: 1px solid #1a1d27;
+    font-variant-numeric: tabular-nums;
+  }
+  .lb-table .rank { width: 40px; color: #6b7084; }
+  .lb-table .lb-name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-table .lb-score { text-align: right; width: 70px; font-weight: 600; }
+  .lb-table tr.me td { background: #1a2d3d; color: #79c0ff; font-weight: 600; }
+  .lb-table tr.me .rank { color: #79c0ff; }
+  .lb-empty { text-align: center; color: #4a4f66; padding: 20px; font-size: 0.85rem; }
+  .lb-submitted { color: #3fb950; font-size: 0.75rem; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -246,10 +290,18 @@
       <div class="stat"><div class="val" id="rct-best">--</div><div class="lbl">最佳 ms</div></div>
       <div class="stat"><div class="val" id="rct-avg">--</div><div class="lbl">平均 ms</div></div>
     </div>
+    <div style="text-align:center;margin-bottom:12px;">
+      <input class="name-input" id="rct-name" placeholder="输入昵称" maxlength="20">
+    </div>
     <div class="reaction-screen idle" id="reaction-screen">
       点击此处开始测试
     </div>
     <div class="result-list" id="reaction-history"></div>
+    <div class="lb-submitted" id="lb-submitted" style="text-align:center;display:none;">已提交到排行榜</div>
+    <table class="lb-table" id="lb-table">
+      <thead><tr><th class="rank">#</th><th>昵称</th><th class="lb-score">反应(ms)</th></tr></thead>
+      <tbody id="lb-body"><tr><td colspan="3" class="lb-empty">加载中...</td></tr></tbody>
+    </table>
     <div style="text-align:center;margin-top:10px;">
       <button class="btn" id="rct-reset">重置记录</button>
     </div>
@@ -462,7 +514,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 })();
 
 // ============================================================
-// Reaction Speed Test
+// Reaction Speed Test with Global Leaderboard
 // ============================================================
 (function() {
   const screen = document.getElementById('reaction-screen');
@@ -471,12 +523,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   const avgEl = document.getElementById('rct-avg');
   const historyEl = document.getElementById('reaction-history');
   const resetBtn = document.getElementById('rct-reset');
+  const nameInput = document.getElementById('rct-name');
+  const lbBody = document.getElementById('lb-body');
+  const lbSubmitted = document.getElementById('lb-submitted');
 
   const STATE = { IDLE: 'idle', WAITING: 'waiting', GO: 'go' };
   let state = STATE.IDLE;
   let timeoutId = null;
   let goTime = 0;
-  let results = []; // store last N reaction times in ms
+  let results = [];
+
+  // Persistent name
+  const STORAGE_NAME_KEY = 'rct_player_name';
+  nameInput.value = localStorage.getItem(STORAGE_NAME_KEY) || '';
+  nameInput.addEventListener('change', () => localStorage.setItem(STORAGE_NAME_KEY, nameInput.value.trim()));
 
   function setScreen(cls, text) {
     screen.className = 'reaction-screen ' + cls;
@@ -505,10 +565,58 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     }
   }
 
+  function playerName() {
+    return nameInput.value.trim() || 'Anonymous';
+  }
+
+  async function submitScore(score) {
+    lbSubmitted.style.display = 'block';
+    lbSubmitted.textContent = '提交中...';
+    try {
+      await fetch('/api/leaderboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: playerName(), score })
+      });
+      lbSubmitted.textContent = '已提交到排行榜';
+    } catch {
+      lbSubmitted.textContent = '提交失败';
+    }
+    loadLeaderboard();
+  }
+
+  async function loadLeaderboard() {
+    try {
+      const res = await fetch('/api/leaderboard');
+      const list = await res.json();
+      if (list.length === 0) {
+        lbBody.innerHTML = '<tr><td colspan="3" class="lb-empty">暂无记录，来抢个第一吧！</td></tr>';
+        return;
+      }
+      const me = playerName();
+      lbBody.innerHTML = list.map(e => {
+        const isMe = e.name === me && e.score === results[results.length - 1];
+        return `<tr class="${isMe ? 'me' : ''}">
+          <td class="rank">${e.rank}</td>
+          <td class="lb-name" title="${escape(e.name)}">${escape(e.name)}</td>
+          <td class="lb-score">${e.score}</td>
+        </tr>`;
+      }).join('');
+    } catch {
+      lbBody.innerHTML = '<tr><td colspan="3" class="lb-empty">加载失败</td></tr>';
+    }
+  }
+
+  function escape(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
   function startRound() {
     state = STATE.WAITING;
     setScreen('waiting', '等待绿色...');
-    const delay = Math.random() * 3000 + 1000; // 1-4 seconds
+    const delay = Math.random() * 3000 + 1000;
     timeoutId = setTimeout(() => {
       state = STATE.GO;
       goTime = performance.now();
@@ -523,7 +631,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       return;
     }
     if (state === STATE.WAITING) {
-      // Too early!
       clearTimeout(timeoutId);
       state = STATE.IDLE;
       setScreen('result-early', '太早了！请等待绿色出现。\n点击重试');
@@ -534,6 +641,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
       results.push(rt);
       if (results.length > 10) results.shift();
       updateStats();
+      submitScore(rt);
 
       let cls = rt < 200 ? 'result-good' : rt < 300 ? 'go' : 'result-early';
       setScreen(cls, rt + ' ms\n点击重试');
@@ -548,6 +656,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     setScreen('idle', '点击此处开始测试');
     updateStats();
   });
+
+  // Load leaderboard on init
+  loadLeaderboard();
 })();
 </script>
 </body>
