@@ -270,20 +270,24 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 });
 
 // ============================================================
-// Polling Rate Test — uses getCoalescedEvents() to read raw
-// hardware pointer events, bypassing the browser's frame-rate cap.
+// Polling Rate Test
+// Strategy: intercept ALL mousemove/pointermove at document level
+// (before browser throttles to frame rate), use getCoalescedEvents
+// where available to retrieve raw hardware events between frames.
 // ============================================================
 (function() {
-  const MAX_SAMPLES = 200;
+  const MAX_SAMPLES = 300;
   const intervals = [];
   const trackArea = document.getElementById('track-area');
-  let lastRawTime = 0;
+  let lastTs = 0;
   let curEl = document.getElementById('poll-cur');
   let avgEl = document.getElementById('poll-avg');
   let maxEl = document.getElementById('poll-max');
   let minEl = document.getElementById('poll-min');
   let samplesEl = document.getElementById('poll-samples');
   let maxHz = 0, minHz = Infinity;
+  let rafId = null;
+  let dirty = false;
 
   function hzClass(v) {
     if (v >= 500) return 'high';
@@ -291,18 +295,20 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     return 'low';
   }
 
-  function processEvent(timestamp) {
-    if (lastRawTime > 0) {
-      const dt = timestamp - lastRawTime;
+  function feed(timestamp) {
+    if (lastTs > 0) {
+      const dt = timestamp - lastTs;
+      // Accept 0.05ms–200ms gaps (covers 5Hz to 20000Hz hardware)
       if (dt > 0.05 && dt < 200) {
         const hz = 1000 / dt;
         intervals.push(hz);
         if (intervals.length > MAX_SAMPLES) intervals.shift();
         if (hz > maxHz) maxHz = hz;
         if (hz < minHz) minHz = hz;
+        dirty = true;
       }
     }
-    lastRawTime = timestamp;
+    lastTs = timestamp;
   }
 
   function updateUI() {
@@ -320,15 +326,36 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     samplesEl.textContent = intervals.length;
   }
 
-  trackArea.addEventListener('pointermove', function(e) {
-    const coalesced = e.getCoalescedEvents();
-    for (const ev of coalesced) {
-      processEvent(ev.timeStamp);
-    }
-    updateUI();
-  });
+  function scheduleUI() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      if (dirty) { updateUI(); dirty = false; }
+    });
+  }
 
-  trackArea.addEventListener('pointerleave', () => { lastRawTime = 0; });
+  // Listen on DOCUMENT so we catch every pointer event before
+  // the browser throttles delivery to the compositor frame rate.
+  document.addEventListener('pointermove', function(e) {
+    if (!document.getElementById('panel-polling').classList.contains('active')) return;
+    const coalesced = e.getCoalescedEvents();
+    for (let i = 0; i < coalesced.length; i++) {
+      feed(coalesced[i].timeStamp);
+    }
+    // Also feed the primary event to bridge inter-frame gaps.
+    // The last coalesced event and this frame's primary event may
+    // have the same timestamp; the >0.05 guard in feed() skips dupes.
+    feed(e.timeStamp);
+    scheduleUI();
+  }, { passive: true });
+
+  // Reset on idle
+  document.addEventListener('pointerleave', function(e) {
+    // Only reset if pointer truly left the viewport
+    if (e.clientY <= 0 || e.clientX <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight) {
+      lastTs = 0;
+    }
+  });
 })();
 
 // ============================================================
