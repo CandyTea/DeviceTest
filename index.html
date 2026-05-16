@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>鼠标测试工具 - 轮询率 / CPS / 反应速度</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0f1117;
+    color: #e1e4e8;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+  }
+  .app {
+    width: 100%;
+    max-width: 700px;
+    margin-top: 20px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 1.6rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    margin-bottom: 20px;
+    color: #f0f3f8;
+  }
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 0;
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: #1a1d27;
+    color: #8b8fa4;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-radius: 8px 8px 0 0;
+    transition: background 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { color: #c8ccd8; background: #222639; }
+  .tab-btn.active { background: #252a3e; color: #fff; }
+
+  .panel {
+    display: none;
+    background: #161923;
+    border: 1px solid #232839;
+    border-radius: 0 0 10px 10px;
+    padding: 30px 24px;
+    min-height: 380px;
+  }
+  .panel.active { display: block; }
+
+  .stat-row {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  .stat {
+    background: #1a1d27;
+    border: 1px solid #232839;
+    border-radius: 10px;
+    padding: 14px 20px;
+    text-align: center;
+    min-width: 100px;
+    flex: 1;
+    max-width: 150px;
+  }
+  .stat .val {
+    font-size: 1.8rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .lbl {
+    font-size: 0.72rem;
+    color: #6b7084;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .val.high { color: #3fb950; }
+  .val.mid { color: #e3b341; }
+  .val.low { color: #f85149; }
+
+  .track-area {
+    background: #11131a;
+    border: 2px dashed #2a2e40;
+    border-radius: 12px;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #4a4f66;
+    font-size: 0.9rem;
+    user-select: none;
+    cursor: crosshair;
+    transition: border-color 0.2s;
+  }
+  .track-area:hover { border-color: #4a5080; }
+
+  .click-target {
+    background: #1a1d27;
+    border: 2px solid #3a3f58;
+    border-radius: 12px;
+    height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.1s, border-color 0.1s;
+    gap: 10px;
+  }
+  .click-target:active { background: #252a3e; border-color: #5a6088; }
+  .click-target .big-num {
+    font-size: 3rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .click-target .sub {
+    font-size: 0.85rem;
+    color: #6b7084;
+  }
+
+  .reaction-screen {
+    border-radius: 12px;
+    height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+    gap: 8px;
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+  .reaction-screen.idle { background: #1a1d27; border: 2px solid #3a3f58; color: #8b8fa4; }
+  .reaction-screen.waiting { background: #3d1a1a; border: 2px solid #8b2a2a; color: #ff7b72; }
+  .reaction-screen.go { background: #1a3d1f; border: 2px solid #2d8b3a; color: #7ee787; }
+  .reaction-screen.result-good { background: #1a2d3d; border: 2px solid #2a5a8b; color: #79c0ff; }
+  .reaction-screen.result-early { background: #3d2a1a; border: 2px solid #8b5a2a; color: #e3b341; }
+
+  .result-list {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 16px;
+  }
+  .result-chip {
+    background: #1a1d27;
+    border: 1px solid #232839;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .btn {
+    padding: 8px 20px;
+    border: 1px solid #3a3f58;
+    border-radius: 6px;
+    background: #1a1d27;
+    color: #e1e4e8;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #252a3e; }
+
+  .bar-row {
+    display: flex;
+    align-items: end;
+    gap: 2px;
+    height: 40px;
+    margin-top: 12px;
+    justify-content: center;
+  }
+  .bar-row .bar {
+    width: 6px;
+    background: #3fb950;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.1s;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>鼠标测试工具</h1>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="polling">轮询率测试</button>
+    <button class="tab-btn" data-tab="cps">CPS 测试</button>
+    <button class="tab-btn" data-tab="reaction">反应速度测试</button>
+  </div>
+
+  <!-- Polling Rate Panel -->
+  <div class="panel active" id="panel-polling">
+    <div class="stat-row">
+      <div class="stat"><div class="val" id="poll-cur">--</div><div class="lbl">当前 Hz</div></div>
+      <div class="stat"><div class="val" id="poll-avg">--</div><div class="lbl">平均 Hz</div></div>
+      <div class="stat"><div class="val" id="poll-max">--</div><div class="lbl">最大 Hz</div></div>
+      <div class="stat"><div class="val" id="poll-min">--</div><div class="lbl">最小 Hz</div></div>
+    </div>
+    <div class="track-area" id="track-area">
+      在此区域内移动鼠标以测量轮询率
+    </div>
+    <div style="text-align:center;margin-top:10px;font-size:0.75rem;color:#4a4f66;">
+      样本数: <span id="poll-samples">0</span>
+    </div>
+  </div>
+
+  <!-- CPS Panel -->
+  <div class="panel" id="panel-cps">
+    <div class="stat-row">
+      <div class="stat"><div class="val" id="cps-clicks">0</div><div class="lbl">点击数</div></div>
+      <div class="stat"><div class="val" id="cps-time">5.0</div><div class="lbl">剩余时间 s</div></div>
+      <div class="stat"><div class="val" id="cps-rate">--</div><div class="lbl">CPS</div></div>
+    </div>
+    <div class="click-target" id="click-target">
+      <div class="big-num" id="cps-status">点击开始</div>
+      <div class="sub">在 5 秒内尽可能快地点击</div>
+    </div>
+    <div class="bar-row" id="cps-bars"></div>
+    <div style="text-align:center;margin-top:10px;">
+      <button class="btn" id="cps-reset">重新开始</button>
+    </div>
+  </div>
+
+  <!-- Reaction Panel -->
+  <div class="panel" id="panel-reaction">
+    <div class="stat-row">
+      <div class="stat"><div class="val" id="rct-last">--</div><div class="lbl">最近 ms</div></div>
+      <div class="stat"><div class="val" id="rct-best">--</div><div class="lbl">最佳 ms</div></div>
+      <div class="stat"><div class="val" id="rct-avg">--</div><div class="lbl">平均 ms</div></div>
+    </div>
+    <div class="reaction-screen idle" id="reaction-screen">
+      点击此处开始测试
+    </div>
+    <div class="result-list" id="reaction-history"></div>
+    <div style="text-align:center;margin-top:10px;">
+      <button class="btn" id="rct-reset">重置记录</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Tab switching
+// ============================================================
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ============================================================
+// Polling Rate Test — uses getCoalescedEvents() to read raw
+// hardware pointer events, bypassing the browser's frame-rate cap.
+// ============================================================
+(function() {
+  const MAX_SAMPLES = 200;
+  const intervals = [];
+  const trackArea = document.getElementById('track-area');
+  let lastRawTime = 0;
+  let curEl = document.getElementById('poll-cur');
+  let avgEl = document.getElementById('poll-avg');
+  let maxEl = document.getElementById('poll-max');
+  let minEl = document.getElementById('poll-min');
+  let samplesEl = document.getElementById('poll-samples');
+  let maxHz = 0, minHz = Infinity;
+
+  function hzClass(v) {
+    if (v >= 500) return 'high';
+    if (v >= 125) return 'mid';
+    return 'low';
+  }
+
+  function processEvent(timestamp) {
+    if (lastRawTime > 0) {
+      const dt = timestamp - lastRawTime;
+      if (dt > 0.05 && dt < 200) {
+        const hz = 1000 / dt;
+        intervals.push(hz);
+        if (intervals.length > MAX_SAMPLES) intervals.shift();
+        if (hz > maxHz) maxHz = hz;
+        if (hz < minHz) minHz = hz;
+      }
+    }
+    lastRawTime = timestamp;
+  }
+
+  function updateUI() {
+    if (intervals.length === 0) return;
+    const cur = Math.round(intervals[intervals.length - 1]);
+    const avg = Math.round(intervals.reduce((a, b) => a + b, 0) / intervals.length);
+    curEl.textContent = cur;
+    curEl.className = 'val ' + hzClass(cur);
+    avgEl.textContent = avg;
+    avgEl.className = 'val ' + hzClass(avg);
+    maxEl.textContent = Math.round(maxHz);
+    maxEl.className = 'val ' + hzClass(maxHz);
+    minEl.textContent = minHz === Infinity ? '--' : Math.round(minHz);
+    minEl.className = 'val ' + (minHz === Infinity ? '' : hzClass(minHz));
+    samplesEl.textContent = intervals.length;
+  }
+
+  trackArea.addEventListener('pointermove', function(e) {
+    const coalesced = e.getCoalescedEvents();
+    for (const ev of coalesced) {
+      processEvent(ev.timeStamp);
+    }
+    updateUI();
+  });
+
+  trackArea.addEventListener('pointerleave', () => { lastRawTime = 0; });
+})();
+
+// ============================================================
+// CPS Test
+// ============================================================
+(function() {
+  const DURATION = 5000; // 5 seconds
+  const target = document.getElementById('click-target');
+  const clicksEl = document.getElementById('cps-clicks');
+  const timeEl = document.getElementById('cps-time');
+  const rateEl = document.getElementById('cps-rate');
+  const statusEl = document.getElementById('cps-status');
+  const barsEl = document.getElementById('cps-bars');
+  const resetBtn = document.getElementById('cps-reset');
+
+  let clickTimes = [];
+  let timerStart = 0;
+  let timerId = null;
+  let running = false;
+
+  function updateDisplay() {
+    const elapsed = Date.now() - timerStart;
+    const remaining = Math.max(0, DURATION - elapsed);
+    timeEl.textContent = (remaining / 1000).toFixed(1);
+    const secs = elapsed / 1000;
+    const cps = secs > 0 ? clickTimes.length / secs : 0;
+    rateEl.textContent = cps.toFixed(1);
+    clicksEl.textContent = clickTimes.length;
+
+    // Draw bars
+    barsEl.innerHTML = '';
+    const maxH = 36;
+    for (let i = 0; i < clickTimes.length; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'bar';
+      bar.style.height = (8 + Math.random() * maxH) + 'px';
+      barsEl.appendChild(bar);
+    }
+  }
+
+  function finish() {
+    running = false;
+    clearInterval(timerId);
+    const elapsed = Date.now() - timerStart;
+    const secs = elapsed / 1000;
+    const cps = secs > 0 ? clickTimes.length / secs : 0;
+    rateEl.textContent = cps.toFixed(1);
+
+    let rating = '';
+    if (cps >= 10) rating = '⚡ 传奇';
+    else if (cps >= 8) rating = '🔥 优秀';
+    else if (cps >= 6) rating = '👍 良好';
+    else if (cps >= 4) rating = '🙂 一般';
+    else rating = '🐢 继续加油';
+
+    statusEl.textContent = cps.toFixed(1) + ' CPS';
+    statusEl.style.fontSize = '2rem';
+    target.querySelector('.sub').textContent = rating;
+    target.style.cursor = 'default';
+  }
+
+  function start(ev) {
+    if (running) return;
+    running = true;
+    clickTimes = [];
+    timerStart = Date.now();
+    target.querySelector('.sub').textContent = '继续点击！';
+    statusEl.textContent = '0';
+    statusEl.style.fontSize = '3rem';
+    target.style.cursor = 'pointer';
+
+    clickTimes.push(ev.timeStamp);
+    updateDisplay();
+
+    timerId = setInterval(() => {
+      updateDisplay();
+      if (Date.now() - timerStart >= DURATION) finish();
+    }, 30);
+  }
+
+  function reset() {
+    clearInterval(timerId);
+    running = false;
+    clickTimes = [];
+    timerStart = 0;
+    clicksEl.textContent = '0';
+    timeEl.textContent = '5.0';
+    rateEl.textContent = '--';
+    statusEl.textContent = '点击开始';
+    statusEl.style.fontSize = '3rem';
+    target.querySelector('.sub').textContent = '在 5 秒内尽可能快地点击';
+    target.style.cursor = 'pointer';
+    barsEl.innerHTML = '';
+  }
+
+  target.addEventListener('click', function(e) {
+    if (!running) { start(e); return; }
+    clickTimes.push(e.timeStamp);
+    updateDisplay();
+    if (Date.now() - timerStart >= DURATION) finish();
+  });
+
+  resetBtn.addEventListener('click', reset);
+})();
+
+// ============================================================
+// Reaction Speed Test
+// ============================================================
+(function() {
+  const screen = document.getElementById('reaction-screen');
+  const lastEl = document.getElementById('rct-last');
+  const bestEl = document.getElementById('rct-best');
+  const avgEl = document.getElementById('rct-avg');
+  const historyEl = document.getElementById('reaction-history');
+  const resetBtn = document.getElementById('rct-reset');
+
+  const STATE = { IDLE: 'idle', WAITING: 'waiting', GO: 'go' };
+  let state = STATE.IDLE;
+  let timeoutId = null;
+  let goTime = 0;
+  let results = []; // store last N reaction times in ms
+
+  function setScreen(cls, text) {
+    screen.className = 'reaction-screen ' + cls;
+    screen.textContent = text;
+  }
+
+  function updateStats() {
+    if (results.length === 0) {
+      lastEl.textContent = '--';
+      bestEl.textContent = '--';
+      avgEl.textContent = '--';
+      historyEl.innerHTML = '';
+      return;
+    }
+    lastEl.textContent = results[results.length - 1];
+    bestEl.textContent = Math.min(...results);
+    avgEl.textContent = Math.round(results.reduce((a, b) => a + b, 0) / results.length);
+
+    historyEl.innerHTML = '';
+    for (let i = results.length - 1; i >= 0; i--) {
+      const chip = document.createElement('span');
+      chip.className = 'result-chip';
+      chip.textContent = results[i] + ' ms';
+      if (results[i] === Math.min(...results)) chip.style.borderColor = '#3fb950';
+      historyEl.appendChild(chip);
+    }
+  }
+
+  function startRound() {
+    state = STATE.WAITING;
+    setScreen('waiting', '等待绿色...');
+    const delay = Math.random() * 3000 + 1000; // 1-4 seconds
+    timeoutId = setTimeout(() => {
+      state = STATE.GO;
+      goTime = performance.now();
+      setScreen('go', '点击！');
+    }, delay);
+  }
+
+  screen.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    if (state === STATE.IDLE) {
+      startRound();
+      return;
+    }
+    if (state === STATE.WAITING) {
+      // Too early!
+      clearTimeout(timeoutId);
+      state = STATE.IDLE;
+      setScreen('result-early', '太早了！请等待绿色出现。\n点击重试');
+      return;
+    }
+    if (state === STATE.GO) {
+      const rt = Math.round(performance.now() - goTime);
+      results.push(rt);
+      if (results.length > 10) results.shift();
+      updateStats();
+
+      let cls = rt < 200 ? 'result-good' : rt < 300 ? 'go' : 'result-early';
+      setScreen(cls, rt + ' ms\n点击重试');
+      state = STATE.IDLE;
+    }
+  });
+
+  resetBtn.addEventListener('click', function() {
+    clearTimeout(timeoutId);
+    state = STATE.IDLE;
+    results = [];
+    setScreen('idle', '点击此处开始测试');
+    updateStats();
+  });
+})();
+</script>
+</body>
+</html>
